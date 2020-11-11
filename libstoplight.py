@@ -9,6 +9,9 @@ import struct
 
 
 class Server:
+    """
+    See: :ref:`Server`
+    """
     # pylint: disable=too-many-instance-attributes
     def __init__(self, selector, sock, addr, verbose=False):
         self.selector = selector
@@ -64,10 +67,12 @@ class Server:
                 if sent and not self._send_buffer:
                     self.close()
 
-    def _json_encode(self, obj, encoding):
+    @classmethod
+    def _json_encode(cls, obj, encoding):
         return json.dumps(obj, ensure_ascii=False).encode(encoding)
 
-    def _json_decode(self, json_bytes, encoding):
+    @classmethod
+    def _json_decode(cls, json_bytes, encoding):
         tiow = io.TextIOWrapper(
             io.BytesIO(json_bytes), encoding=encoding, newline=""
         )
@@ -104,7 +109,8 @@ class Server:
         }
         return response
 
-    def _create_empty_response_content(self):
+    @classmethod
+    def _create_empty_response_content(cls):
         response = {
             "content_bytes": None,
             "content_type": None,
@@ -113,12 +119,19 @@ class Server:
         return response
 
     def process_events(self, mask):
+        """
+        Either call self.read() or self.write() based on the selector
+        """
         if mask & selectors.EVENT_READ:
             self.read()
         if mask & selectors.EVENT_WRITE:
             self.write()
 
     def read(self):
+        '''
+        Read data from the socket and store it in the receive buffer, process the data,
+        then process the request.
+        '''
         self._read()
 
         if self._jsonheader_len is None:
@@ -133,6 +146,9 @@ class Server:
                 self.process_request()
 
     def write(self):
+        '''
+        Create a response and send it.
+        '''
         if self.request:
             if not self.response_created:
                 self.create_response()
@@ -140,11 +156,14 @@ class Server:
         self._write()
 
     def close(self):
+        '''
+        Unregister from the selector and close socket connection
+        '''
         if self.verbose:
             print("closing connection to", self.addr)
         try:
             self.selector.unregister(self.sock)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             print(
                 "error: selector.unregister() exception for",
                 f"{self.addr}: {repr(exc)}",
@@ -162,6 +181,9 @@ class Server:
             self.sock = None
 
     def process_protoheader(self):
+        '''
+        Fixed-length header; output self._jsonheader_len
+        '''
         hdrlen = 2
         if len(self._recv_buffer) >= hdrlen:
             self._jsonheader_len = struct.unpack(
@@ -170,6 +192,9 @@ class Server:
             self._recv_buffer = self._recv_buffer[hdrlen:]
 
     def process_jsonheader(self):
+        '''
+        JSON header; output self.jsonheader
+        '''
         hdrlen = self._jsonheader_len
         if len(self._recv_buffer) >= hdrlen:
             self.jsonheader = self._json_decode(
@@ -186,6 +211,9 @@ class Server:
                     raise ValueError(f'Missing required header "{reqhdr}".')
 
     def process_request(self):
+        '''
+        Content of message; output self.request
+        '''
         content_len = self.jsonheader["content-length"]
         if not len(self._recv_buffer) >= content_len:
             return
@@ -206,6 +234,9 @@ class Server:
             self._set_selector_events_mask("w")
 
     def create_response(self):
+        '''
+        creates response, some sort of acknowledge likely
+        '''
         if self.jsonheader["content-type"] == "text/json":
             response = self._create_response_json_content()
         else:
